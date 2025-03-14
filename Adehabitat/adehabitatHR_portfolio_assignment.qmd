@@ -1,0 +1,347 @@
+---
+title: "ESM 211: adehabitatHR"
+subtitle: "Modeling California gnatcatcher home ranges from 1990 and 2024"
+author: "FIRST LAST"
+date: February 13, 2025
+format:
+  html:
+    embed-resources: true
+---
+
+## Overview
+
+For this assignment, you will use the `adehabitatHR` package in R to model home ranges for California gnatcatcher (*Polioptila californica*, CAGN) - a bird that is native to California and Mexico. Species occurence data was downloaded from the Global Biodiversity Information Facility (GBIF) database from 1990 to present day. This data is saved in a CSV file called `p_californica`. Using a subset of this data, an example is provided for you that models the CAGN home range for 1990 to 1992 and calculates the home range size. After working through the 1990-1992 example, it will then be up to you to conduct the same analysis for a subset of the data for the year 2024 to compare how the species home range has changed over time.
+
+There are seven main steps to follow:
+
+1.  Load and filter data
+
+2.  Create Spatial Points Data Frame
+
+3.  Visualize Data
+
+4.  Kernel Density Estimation
+
+5.  Create Spatial Polygon Data Frame
+
+6.  Better Visualization of Data
+
+7.  Calculate Home Range Area
+
+```{r}
+# clear environment 
+rm(list = ls())
+```
+
+## Load Libraries
+
+```{r}
+# Just in case you don't have these installed
+# install.packages("tidyverse") 
+# install.packages("here")  
+# install.packages("janitor") 
+ install.packages("adehabitatHR")  
+# install.packages("leaflet") 
+# install.packages("sf")  
+
+#load libraries
+library(tidyverse)    #for tidy data
+library(here)         #for loading data
+library(janitor)      #for cleaning data
+library(adehabitatHR) #for modeling home range
+library(leaflet)      #for mapping
+library(sf)           #for mapping
+```
+
+## Example: 1990-1992 CAGN Home Range
+
+### Load and Filter Data
+
+The first thing we need to do is bring in the California gnatcatcher (CAGN) observation data and filter for observations from 1990 to 1992. As mentioned above, we've provided an example using this subset of the data below. You will then reproduce this workflow with the 2024 observations to determine changes in CAGN home range size.
+
+```{r}
+# Load gnatcatcher occurrence data downloaded from GBIF; note that "data" refers to an optional folder within your working directory and can be removed if appropriate
+gnat <- read.csv(here("p_californica.csv"))
+```
+
+```{r}
+#create a subset of data for 1990 to 1992
+gnat90_92 <- gnat |> 
+  filter(year %in% 1990:1992)
+```
+
+### Create Spatial Points Data Frame
+
+Once you've read in the data and filtered for 1990 to 1992 observations, we need to create a Spatial Points Data Frame (SPDF) from our latitude and longitude coordinates and specify the Coordinate Reference System (CRS) for mapping purposes. We do this with the `SpatialPointsDataFrame` function which requires several arguments, `coords` is the data frame containing the lat/long coordinates, `data` to define the data set, and `proj4string` to define the desired CRS projection. Be sure to check the CRS of your new object, `spdf90_92`.
+
+```{r}
+#Create a variable "prj" for the WGS 1984 CRS projection 
+prj <- "+init=epsg:4326"
+
+#Create a SpatialPointsDataFrame (SPDF) for the 1990-1992 gnatcatcher data
+spdf90_92 <- SpatialPointsDataFrame(
+             # Combine longitude and latitude into coordinate pairs
+             coords = coordinates(cbind(gnat90_92$decimalLongitude,
+                                        gnat90_92$decimalLatitude)),
+             # Use the original dataset to include additional attributes
+             data = gnat90_92, 
+             # Assign the defined WGS 1984 projection
+             proj4string = CRS(prj))
+```
+
+```{r}
+#double check CRS
+st_crs(spdf90_92)
+```
+
+### Visualize Data
+
+Now we will plot a quick visualization of the SPDF from 1990-1992, using the function `plot`, to see what we are working with. It's not very exciting...yet.
+
+```{r}
+#make a quick plot
+#pch and cex adjust the symbol and size
+plot(spdf90_92, pch = 19, cex = .5)
+```
+
+### Kernel Density Estimation
+
+Now, we will assess the species home range using Kernel Density estimation and visualize the output. The function `kernelUD` computes a Kernel Utilization Distribution (UD), which estimates the probability distribution of the species' locations based on observed data. The function requires two arguments: `xy` inputs the SPDF, and setting the `h` argument to "href" will automatically determine an optimal bandwidth for smoothing the density estimation using the reference bandwidth method. The function `image` allows a graphical display of the kernel density estimate.
+
+```{r}
+#Run the kernel density
+kd90_92 <- kernelUD(xy = spdf90_92, #Input SPDF
+                    h = "href")     #"href" stands for "reference bandwidth", which is a method for estimating the smoothing parameter, h, based on the data.
+
+
+#Visualize the kernel density estimation as a raster-like image
+image(kd90_92)
+```
+
+### Create Spatial Polygons from KDE
+
+We now want to extract the gnatcatcher home range contours that we generated above. We will use the function `getverticeshr`, which calls for two arguments: `x` is the output from the kernel UD and `percent` indicates the percentage level for home-range estimation. We will extract home range polygons for 75% and 90% levels and confirm that the output is a Spatial Polygons Data Frame. We can create a quick plot to visualize the 75% and 90% gnatcatcher home ranges.
+
+```{r}
+# Extract 75% and 90% home range polygons
+hr75_9092 <- getverticeshr(x = kd90_92, 
+                           percent = 75)
+
+hr90_9092 <- getverticeshr(x = kd90_92, 
+                           percent = 90)
+
+# Check the class of the extracted object (should be SpatialPolygonsDataFrame)
+class(hr90_9092)
+```
+
+```{r}
+#quick plot of 90% and 75% Kernel Density home ranges
+plot(hr90_9092, col = "purple", main = "1990-1992 Kernel Density Home Ranges")
+plot(hr75_9092, add = TRUE, border = "red")  # Add 75% range in red
+```
+
+### Better Visualization Methods
+
+Now that we have our kernel density home ranges we can make some prettier visualizations using `ggplot` and `leaflet`. First, we will need to convert our spatial polygons into a simple feature (sf) format - the necessary format to use `ggplot` and `leaflet`. We will use the function `st_as_sf` to convert our spatial polygons into an sf object.
+
+#### ggplot
+
+```{r}
+# Convert to sf format for ggplot and leaflet
+hr75_9092_sf <- st_as_sf(hr75_9092)
+hr90_9092_sf <- st_as_sf(hr90_9092)
+```
+
+```{r}
+# Plot with ggplot
+ggplot() +
+  #Add the 90% Kernel density home range 
+  geom_sf(data = hr90_9092_sf, 
+          aes(fill = "90% Home Range"),  # Assign label for legend
+          alpha = 0.4) +                 # Adjust transparency
+  #Add the 75% Kernel density home range
+  geom_sf(data = hr75_9092_sf, 
+          aes(fill = "75% Home Range"),  
+          alpha = 0.4) +
+  #Add a legend 
+  scale_fill_manual(name = "1990-1992 Home Range", 
+                    values = c("90% Home Range" = "purple", 
+                               "75% Home Range" = "red")) +
+  theme_minimal()
+```
+
+#### leaflet
+
+```{r}
+# Leaflet map
+leaflet() |>
+  #Add a base map
+  addTiles() |>
+  #Add the 90% Kernel Density home range
+  addPolygons(data = hr90_9092_sf, 
+              color = "purple", 
+              fillOpacity = 0.3) |>
+  #Add the 75% Kernel Density home range
+  addPolygons(data = hr75_9092_sf, 
+              color = "red", 
+              fillOpacity = 0.3) |> 
+  #Add a legend
+  addLegend(position = "bottomleft",
+            colors = c("purple", "red"), 
+            labels = c("90% kd", "75% kd"),
+            title = "1990-1992 Home Range",
+            opacity = 1)
+```
+
+### Calculate Home Range Area
+
+Now we will calculate the area of the 75% and 90% home ranges using the `st_area` function. First we need to convert our simple features (sf) into a suitable coordinate reference system (CRS) that preserves distances and area. We will use the function `st_transform` to convert to the UTM Zone 11 CRS. Then we calculate the home range areas and convert to kilometer squared to compare the size differences.
+
+```{r}
+# Calculate the area of the home ranges
+
+# Ensure sf is suitable CRS to preserve distances and area (e.g., UTM Zone 11)
+hr90_9092_sf <- st_transform(hr90_9092_sf, crs = 32611)  
+hr75_9092_sf <- st_transform(hr75_9092_sf, crs = 32611)  
+
+# Calculate area in sq. kilometers by dividing by 1,000,000 b/c UTM is sq. meters
+area_hr90_9092 <- as.numeric(st_area(hr90_9092_sf)) / 1000000
+area_hr90_9092  # 90% Total home range area
+
+area_hr75_9092 <- as.numeric(st_area(hr75_9092_sf)) / 1000000
+area_hr75_9092  # 75% Total home range area
+```
+
+You should get 325331.9 km\^2 for the 90% total home range area and 162603 km\^2 for the 75% total home range area. We expect the 75% home range to be smaller than the 90% home range because there is a smaller proportion of occurrences being used to calculate the KDE.
+
+## Portfolio Assignment: 2024 CAGN Home Range
+
+Now that you have successfully modeled and visualized the California gnatcatcher home ranges from 1990-1992, we want to determine how the species range has changed over time by modeling the 2024 home range! You can follow the same workflow as above but for the 2024 subset of the data.
+
+### Filter Data
+
+```{r}
+#create a subset of data for 2024
+gnat2024 <- gnat |> 
+  filter('insert code')
+```
+
+### Create Spatial Points Data Frame
+
+```{r}
+#Create a SpatialPointsDataFrame (SPDF) for the 2024 gnatcatcher data
+spdf2024 <- SpatialPointsDataFrame(
+             # Combine longitude and latitude into coordinate pairs
+             coords = coordinates(cbind('insert code',
+                                        'insert code')),
+             # Use the original dataset to include additional attributes
+             data = 'insert data', 
+             # Assign the defined WGS 1984 projection
+             proj4string = CRS(prj)) #we created a variable "prj" for the WGS 1984 CRS projection above on line 78
+
+#double check CRS
+st_crs('SPDF name')
+```
+
+### Visualize Data
+
+```{r}
+#quick plot
+plot('insert code')
+```
+
+### Kernel Density Estimation
+
+```{r}
+kd2024 <- kernelUD('insert code')
+
+#Visualize the kernel density estimation
+image(kd2024)
+```
+
+### Create Spatial Polygons from KDE
+
+```{r}
+# Extract 75% and 90% home range polygons
+hr75_2024 <- getverticeshr('insert code')
+
+hr90_2024 <- getverticeshr('insert code')
+
+# Check the class of the extracted object
+class(hr90_2024) 
+```
+
+```{r}
+#quick plot of 90% and 75% Kernel Density home ranges
+plot('insert 90% home range', col = "green", main = "")
+plot('insert 75%  home range', add = TRUE, border = "orange")
+```
+
+### Better Visualization Methods
+
+#### ggplot
+
+```{r}
+# Convert to sf format for ggplot and leaflet
+hr75_2024_sf <- st_as_sf('insert 75%  home range')
+hr90_2024_sf <- st_as_sf('insert 90% home range')
+```
+
+```{r}
+ggplot() +
+```
+
+#### leaflet
+
+```{r}
+leaflet() |>
+  addTiles() |>
+  addPolygons('insert 90% specifications') |>
+  addPolygons('insert 75% specifications') |> 
+  addLegend()
+```
+
+### Calculate HR Area
+
+```{r}
+# Ensure sf is suitable CRS to preserve distances and area
+hr90_2024_sf <- st_transform(hr90_2024_sf, crs = 'specify CRS')  
+hr75_2024_sf <- st_transform('insert 75% sf', crs = 'specify CRS')  
+
+# Calculate area in sq. kilometers (remember that UTM is sq. meters)
+area_hr90_2024 <- as.numeric(st_area('insert 90% sf')) / 
+area_hr90_2024  # 90% Total home range area
+
+area_hr75_2024 <- as.numeric(st_area('insert 75% sf')) / 
+area_hr75_2024  # 75% Total home range area
+```
+
+## Compare Across Years
+
+Now that we have the kernel density home ranges for 1990-1992 and for 2024 let's see how the species home range has changed. We can visualize the home ranges together in `leaflet` and compare the different home range sizes.
+
+```{r}
+# Reproject back to WGS84 to preserve mapping for Leaflet
+hr90_9092_sf <- st_transform('insert 90% sf', crs = 'specify CRS')
+hr90_2024_sf <- st_transform('insert 90% sf', crs = 'specify CRS')
+```
+
+```{r}
+# Now create the Leaflet map
+
+```
+
+```{r}
+#Compare 1990-1992 and 2024 home range sizes (hint: no new calculations are required)
+
+#Calculate how much the home range has changed
+
+```
+
+## Questions
+
+1.  Why do you need to use a Spatial Points Data Frame for this analysis?
+
+2.  What is the difference between a 75% and 90% kernel density estimation?
+
+3.  How has the California gnatcatcher home range size changed over time?

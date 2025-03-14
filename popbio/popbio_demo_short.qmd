@@ -1,0 +1,228 @@
+---
+title: "popbio_demo_short"
+format: html
+editor: visual
+---
+
+# 1. Load packages
+
+```{r}
+install.packages("popbio")
+
+library(tidyverse)
+library(popbio)
+```
+
+# 2. Load census data
+
+Use pre-loaded test.census data, which reports 3 years of census observations for a hypothetical plant.
+
+```{r}
+data <- test.census
+```
+
+# 3. Construct Projection Matrix
+
+## A. Create a stage-fate dataframe.
+
+A stage-fate dataframe links each observation of an individual during one census (time 1) with its fate in the following census (time 2).
+
+```{r}
+# create the stage-fate dataframe
+trans <- subset(
+  merge(data, data, by = "plant", sort = FALSE),
+  year.x == year.y - 1)
+
+# rename rows to improve clarity
+rownames(trans) <- 1:nrow(trans)
+
+# rename columns 2-7 to improve clarity
+colnames(trans)[2:7] <- c("year", "stage", "fruits", "year2", "fate", "fruits2")
+```
+
+## B. Calculate and add fertility rate to the stage-fate data frame.
+
+Calculating fertility rates will allow us to determine the reproductive success of each individual. It is also necessary to produce the projection matrix when individual fertility rates are averaged by stage. When census data lacks information on the direct number of offspring (ie. seeds produced by plants), a relative fertility rate could be used instead. The relative fertility is calculcated by finding the proportion of total reproductive output attributable to an individual times the total number of seedlings at the end of the projection interval.
+
+```{r}
+#########################
+##### FOR YEAR 2001 #####
+#########################
+
+# subset the data from 2001
+trans01 <- subset(trans, year == 2001, c(plant, stage, fruits, fate))
+
+# count the number of seedlings observed in the next year (2002)
+seedlings02 <- nrow(subset(trans, year == 2002 & stage == "seedling")) 
+
+# calculate the relative fertility rate of each plant and store it in a new "seedling" column
+trans01$seedling <- trans01$fruits/sum(trans01$fruits) * seedlings02
+
+```
+
+```{r}
+#########################
+##### FOR YEAR 2002 #####
+#########################
+
+# subset the data from 2002
+trans02 <- subset(trans, year == 2002, c(plant, stage, fruits, fate))
+
+# count the number of seedlings observed in the next year (2003)
+seedlings03 <- nrow(subset(trans, year == 2003 & stage == "seedling")) 
+
+# calculate the relative fertility rate of each plant and store it in a new "seedling" column
+trans02$seedling <- trans02$fruits/sum(trans02$fruits) * seedlings03
+```
+
+## C. Create the projection matrix
+
+```{r}
+#########################
+##### FOR YEAR 2001 #####
+#########################
+
+# assign life stages of interest to "stages"
+stages <- c("seedling", "vegetative", "reproductive")
+
+# create population projection matrix using 2001 relative fertility rate
+A01 <- projection.matrix(trans01, sort = stages)
+```
+
+```{r}
+#########################
+##### FOR YEAR 2002 #####
+#########################
+
+# assign life stages of interest to "stages"
+stages <- c("seedling", "vegetative", "reproductive")
+
+# create population projection matrix using 2001 relative fertility rate
+A02 <- projection.matrix(trans02, sort = stages)
+
+```
+
+# 4. Calculate Deterministic Population Growth Rate
+
+The deterministic approach to population modeling relies on the equation Nt+1. It assumes density-independent population growth, constant vital rates, constant environment.
+
+```{r}
+#####################################
+##### USING 2001 FERTILITY RATE #####
+#####################################
+
+# define starting population size AKA initial stage vector. the initial stage vector is th distribution of individuals across different stages at the beginning of the projection period.
+
+# count the number of seedlings, vegetative, and reproductive individuals observed in 2001
+n2001 <- data.frame(
+  seedling = nrow(subset(trans, year == 2001 & stage == "seedling")),
+  vegetative = nrow(subset(trans, year == 2001 & stage == "vegetative")),
+  reproductive = nrow(subset(trans, year == 2001 & stage == "reproductive"))
+)
+
+# assign the starting population size. 6 seedlings, 2 vegetative, 3 reproductive
+n01 <- c(6,2,3)
+
+# project population growth over 15 years
+p01 <- pop.projection(A01, n01, 15)
+
+```
+
+```{r}
+#####################################
+##### USING 2002 FERTILITY RATE #####
+#####################################
+
+# assign the starting population size. 6 seedlings, 2 vegetative, 3 reproductive
+n02 <- c(6,2,3)
+
+# project population growth over 15 years
+p02 <- pop.projection(A02, n02, 15)
+```
+
+# 5. Calculate Stochastic Growth Rate
+
+```{r}
+# find stochastic growth rate for 50,000 iterations
+
+#compile all projection matrices into one list
+matrices <- list(A01, A02)
+names(matrices) <- c("A01", "A02")
+
+# find stochastic growth rate
+sgr <- stoch.growth.rate(matrices, verbose = FALSE)
+exp(sgr$approx)
+
+sgr
+```
+
+
+### Homework Assignment
+
+Using the prepared hudsonia matrices available in popbio, answer the following:
+● What is the population growth rate for each year of available data (1985-1988)? Use the
+deterministic approach.
+● What is the stochastic growth rate?
+● Compare the growth rates calculated using the two methods. How are they different? Why?
+
+```{r}
+
+library(tidyverse)
+library(popbio)
+```
+
+
+```{r}
+
+#Load in data
+hudsonia_data <- hudsonia
+view(hudsonia_data)
+
+#create a dataframe from the matrix for each year
+hudsonia_85 <- hudsonia$A85
+hudsonia_86 <- hudsonia$A86
+hudsonia_87 <- hudsonia$A87
+hudsonia_88 <- hudsonia$A88
+
+#calculate growth rate for each year
+
+growth_rate_85 <- lambda(hudsonia_85)
+growth_rate_85
+
+growth_rate_86 <- lambda(hudsonia_86)
+growth_rate_86
+
+growth_rate_87 <- lambda(hudsonia_87)
+growth_rate_87
+
+growth_rate_88 <- lambda(hudsonia_88)
+growth_rate_88
+```
+
+● What is the population growth rate for each year of available data (1985-1988)? Use the
+deterministic approach.
+Growth Rate 1985 - 0.9593438
+Growth Rate 1986 - 1.009809
+Growth Rate 1987 - 0.8453119
+Growth Rate 1988 - 1.01832
+
+```{r}
+##Stochastic growth rate
+
+sgr <- stoch.growth.rate(hudsonia_data, verbose = FALSE)
+exp(sgr$approx)
+
+
+
+
+```
+● What is the stochastic growth rate?
+
+0.9635547
+
+● Compare the growth rates calculated using the two methods. How are they different? Why?
+
+They are pretty similar, the deterministic model varies by year, sometimes above one, sometimes below 1. Stochastic number is likely more realistic as it takes into account fluctuations year to year, and also the randomness of population dynamics. The year to year predictions indicate some population growth over the years, while the stochastic model predicts slow population decline at a rate close to a sustaining rate.
+
+
+

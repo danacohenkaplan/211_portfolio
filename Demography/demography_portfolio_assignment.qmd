@@ -1,0 +1,360 @@
+---
+title: "`demography` portfolio assignment"
+author: "FIRST LAST"
+format: html
+editor: visual
+---
+
+## Overview
+
+For this assignment, you will use the `demography` package in R to model and forecast fertility and mortality data using the Lee-Carter approach. An example is provided for you using Australian fertility data (`aus.fert`). After working through this example, it will then be up to you to conduct the same analysis with a French mortality dataset (`fr.mort`). For both datasets, there are four main steps to follow:
+
+1.  Load the data
+2.  Model fertility or mortality using the Lee-Carter approach
+3.  Forecast fertility or mortality rates using the output from the Lee-Carter model
+4.  Plot the forecasted fertility or mortality rates and interpret the results
+
+```{r}
+# clear environment 
+rm(list = ls())
+```
+
+## Load packages
+
+```{r}
+install.packages("demography")
+#in case you don't have it installed
+
+
+
+# install.packages("tidyverse") | this should be installed already, but just in case
+library(demography) # for demographic data & analyses
+library(tidyverse) 
+```
+
+## Australian fertility example
+
+#### Load data
+
+The first thing we need to do is load some data to work with.
+
+There are two options for loading data as `demogdata` objects that are built in to the `demography` package:
+
+1.  `aus.fert` - Australian fertility data
+2.  `fr.mort` - French mortality data
+
+As mentioned above, we've provided an example using the Australian fertility data below. You will then reproduce this workflow with the other dataset to model and forecast French mortality data.
+
+```{r}
+# Load Australian fertility data as a demogdata object
+aus_demog <- aus.fert
+
+str(aus_demog)
+```
+
+Once you've read in the data, you can take a look at the `demogdata` object by clicking on the object in your Environment pane, or calling it in the `str()` function. You should see a list of components, including `age`, `year`, `rate` and others. The `rate` component is a matrix of fertility rates by age and year, and these will be important to us as we move forward with the LCA modeling.
+
+#### Lee Carter model & forecasting:
+
+Now it's time to model fertility using the Lee-Carter approach, and then forecast the data to predict future fertility rates.
+
+###### For the Australian fertility data, we're using the following parameters for the Lee-Carter model and forecast:
+
+-   **Modeling fertility using the Lee-Carter approach**:
+    -   the name of the series containing fertility rates (hint: you need to use the `names()` function to access the `rate` list)
+    -   include all years and ages available in the data in the model
+    -   an upper age of `47` (this is the maximum age in the Australian fertility data)
+    -   the `dt` method of adjustment for coefficients
+    -   the `rate` method for calculating residuals
+-   **Forecasting fertility**:
+    -   forecast `50` years into the future
+    -   use the `innovdrift` method to calculate SEs
+    -   use the `fit` method to compute jumpchoice
+    -   specify a confidence level of `80` for prediction intervals
+
+###### Lee-Carter model
+
+```{r}
+# model fertility data using Lee-Carter approach
+aus_fert_lca <- lca(data = aus_demog, # demogdata object 
+                    # name of series w/in data containing fertility rates
+                    series = names(aus_demog$rate),  
+                    # years to include in fitting the model
+                    years = aus_demog$year,
+                    # ages to include in fitting the model
+                    ages = aus_demog$age,
+                    # upper age to include in the fit (47 for Aus data)
+                    max.age = 47, 
+                    # method to use for adjustment of coefficients (dt for lca)
+                    adjust = "dt", 
+                    # method used for calculating residuals (rate for this ex)
+                    restype = "rate")
+```
+
+###### Forecasting fertility
+
+```{r}
+# use the lca object to forecast fertility rates
+aus_fert_forecast <- forecast(object = aus_fert_lca, # output from lca
+                              # number of years to forecast
+                              h = 50, 
+                              # method used to calculate SEs (innovdrift for this ex)
+                              se = "innovdrift", 
+                              # method used to compute jumpchoice
+                              jumpchoice = "fit", 
+                              # confidence level for prediction intervals
+                              level = 80)
+```
+
+###### Plotting the forecasted fertility rates
+
+```{r}
+# Create plotting function for our projections
+plot_demog_forecast <- function(years = NULL, legend = 'continuous', forecast_data, plot_type) {
+  
+  # Make sure that user input is accepted
+  
+  if (!plot_type %in% c('fertility', 'mortality')){
+    stop("Error: argument 'plot_type' must be either 'fertility' or 'mortality'.")
+  }
+  
+  if (!legend %in% c('continuous', 'discrete')){
+    stop("Error: argument 'legend' must be either 'continuous' or 'discrete'.")
+  }
+  
+  ages <- forecast_data$age # Generate list of values to encompass all age values
+  country <- forecast_data$label # Extract the country name for later use
+  if (plot_type == 'fertility'){
+    proj_matrix <- as.data.frame(forecast_data$rate$female) # Extract fertility rates
+  } else {
+    proj_matrix <- as.data.frame(forecast_data$rate$total) # Extract mortality rates
+  }
+  colnames(proj_matrix) <- forecast_data$year # Set prediction year as column name
+  
+  # Create values to reference in creating the ggplot
+  plot_name <- ifelse(plot_type == 'fertility', 'Fertility', 'Mortality')
+  rate_col <- ifelse(plot_type == 'fertility', 'FertilityRate', 'MortalityRate')
+  y_axis_title <- ifelse(plot_type == 'fertility', '(Per 1,000 Individuals', 'Per Individual')
+
+  # Format data to allow for plotting
+  proj_long <- proj_matrix %>%
+    mutate(Age = ages) %>%
+    pivot_longer(-Age, names_to = 'Year', values_to = paste0(plot_name, 'Rate')) %>% # Pivot to prep for plotting (tidy)
+    mutate(Year = as.numeric(Year)) # Set Year as numeric
+  
+  # Filter years for plotting if specified by argument
+  if (!is.null(years)) {
+    proj_long <- proj_long %>% filter(Year %in% years)
+  }
+  
+  if (legend == 'continuous'){
+    # Generate plot with continuous scale legend
+    ggplot(proj_long, aes(x = Age, 
+                          y = !!sym(rate_col), # Allows string to be interpreted as a column name
+                          color = Year, 
+                          group = Year)) +
+      geom_line() +
+      scale_color_viridis_c(option = 'viridis') + # Sets the color of the gradient scale
+      scale_y_log10() + # Log scale for better visualization
+      labs(title = paste0(plot_name, ' Rate Forecast for ', country), 
+           x = 'Age', 
+           y = paste0(plot_name, ' Rate ', y_axis_title),
+           color = 'Year') +
+      theme_minimal()
+  } else {
+    # Generate same plot but with discrete legend
+    ggplot(proj_long, aes(x = Age, 
+                          y = !!sym(rate_col), 
+                          color = factor(Year))) +
+    geom_line() +
+    scale_color_viridis_d(option = 'viridis') + # Slightly different function from continuous case
+    scale_y_log10() +  # Log scale for better visualization
+    labs(title = paste0(plot_name, ' Rate Forecast for ', country), 
+         x = 'Age', 
+         y = paste0(plot_name, ' Rate ', y_axis_title), 
+         color = 'Year') +
+    theme_minimal()
+  }
+}
+
+```
+
+We created a custom plotting function in the chunk above to accompany this assignment since the default plot isn't very useful. The function is called `plot_forecast_projections()`, and it has four arguments: `projection_data`, `plot_type`, `years`, and `legend`. The first two are required, but `years` and `legend` are optional.
+
+-   `forecast_data` (required) - The forecasted data output generated from the `forecast()` function
+
+-   `plot_type` (required) - Input should be either `"fertility"` or `"mortality"` based on the context of your forecast
+
+-   `years` *(optional)* - By default, includes all forecasted years. Input should be a vector of years to include in the plot. Ex: `c(2030, 2035, 2040, 2045)`
+
+-   `legend` *(optional)* - Input should be either `"continuous"` or `"discrete"`. The default value is `"continuous"` and presents the legend as a gradient. If the `years` argument is specified, consider changing this to `"discrete"` to better visualize the distinct lines.
+
+Consider trying out different values to see how the visualization changes!
+
+```{r}
+# plot the forecasted fertility rates
+plot_demog_forecast(
+  forecast_data = aus_fert_forecast, # output from forecast function
+  plot_type = 'fertility') 
+```
+
+## French mortality data: your turn!
+
+Now that you've successfully modeled and forecasted Australian fertility data, it's time to do the same with French mortality data. First, we need to load the French mortality data. After that, you will follow the same steps used with the Australian fertility data to model fertility with the Lee-Carter approach and then forecast the data to predict future mortality rates.
+
+If you get stuck at all, reference the Australian fertility example above. You can also look at pages 22 & 17 of the [demography CRAN documentation](https://cran.r-project.org/web/packages/demography/demography.pdf) for more information on LCA modeling and forecasting, respectively.
+
+#### Load French mortality data
+
+```{r}
+# Load French mortality data as a demogdata object
+fr_demog <- fr.mort
+```
+
+#### For the French mortality data, use the following parameters in the Lee-Carter model and forecast:
+
+-   **Modeling mortality using the Lee-Carter approach**:
+    -   the name of the series containing mortality rates for both males and females (hint: you need to use the `names()` function to access the `rate` list, but because there are three series in this `demogdata` object, you need to specify which one you want to use)
+    -   include all years and ages available in the data in the model
+    -   an upper age of `100`
+    -   the `dt` method of adjustment for coefficients
+    -   the `rate` method for calculating residuals
+-   **Forecasting mortality**:
+    -   forecast `50` years into the future
+    -   use the `innovdrift` method to calculate SEs
+    -   use the `fit` method to compute jumpchoice
+    -   specify a confidence level of `80` for prediction intervals
+
+We'll get you started with the code to model French mortality using the Lee-Carter approach. Then, it'll be up to you to forecast the data and plot the projected mortality rates.
+
+#### Lee-Carter model
+
+```{r}
+# model mortality data using Lee-Carter approach
+fr_mort_lca <- lca(data = fr_demog, # demogdata object 
+                   # name of series w/in data containing mortality rates
+                   series = names(fr_demog$rate)[1],  
+                   # years to include in fitting the model
+                   years = fr_demog$year,
+                   # ages to include in fitting the model
+                   ages = fr_demog$age,
+                   # upper age to include in the fit (110 for Fr data)
+                   max.age = 100, 
+                   # method to use for adjustment of coefficients (dt for lca)
+                   adjust = "dt", 
+                   # method used for calculating residuals (rate for this ex)
+                   restype = "rates")
+```
+
+#### Forecasting mortality
+
+```{r}
+fr_mort_forecast <- forecast(object = fr_mort_lca, # output from lca
+                              # number of years to forecast
+                              h = 50, 
+                              # method used to calculate SEs (innovdrift for this ex)
+                              se = "innovdrift", 
+                              # method used to compute jumpchoice
+                              jumpchoice = "fit", 
+                              # confidence level for prediction intervals
+                              level = 80)
+str(fr_mort_lca)
+```
+
+#### Plotting the forecasted mortality rates
+
+Now that you've modeled and forecasted the data, it's time to plot the results! Use the `plot_forecast_projections()` function to plot the forecasted fertility or mortality rates. Refer to the example and function explanation above for more information on plotting the results of your LCA model and forecast. Page 33 of the [demography CRAN documentation](https://cran.r-project.org/web/packages/demography/demography.pdf) is another good source for an external method of plotting this data.
+
+```{r}
+
+# Create plotting function for our projections
+plot_demog_forecast <- function(years = NULL, legend = 'continuous', forecast_data, plot_type) {
+  
+  # Make sure that user input is accepted
+  
+  if (!plot_type %in% c('fertility', 'mortality')){
+    stop("Error: argument 'plot_type' must be either 'fertility' or 'mortality'.")
+  }
+  
+  if (!legend %in% c('continuous', 'discrete')){
+    stop("Error: argument 'legend' must be either 'continuous' or 'discrete'.")
+  }
+  
+  ages <- forecast_data$age # Generate list of values to encompass all age values
+  country <- forecast_data$label # Extract the country name for later use
+  if (plot_type == 'mortality'){
+    proj_matrix <- as.data.frame(forecast_data$rate$female) # Extract fertility rates
+  } else {
+    proj_matrix <- as.data.frame(forecast_data$rate$total) # Extract mortality rates
+  }
+  colnames(proj_matrix) <- forecast_data$year # Set prediction year as column name
+  
+  # Create values to reference in creating the ggplot
+  plot_name <- ifelse(plot_type == 'fertility', 'Fertility', 'Mortality')
+  rate_col <- ifelse(plot_type == 'fertility', 'FertilityRate', 'MortalityRate')
+  y_axis_title <- ifelse(plot_type == 'fertility', '(Per 1,000 Individuals', 'Per Individual')
+
+  # Format data to allow for plotting
+  proj_long <- proj_matrix %>%
+    mutate(Age = ages) %>%
+    pivot_longer(-Age, names_to = 'Year', values_to = paste0(plot_name, 'Rate')) %>% # Pivot to prep for plotting (tidy)
+    mutate(Year = as.numeric(Year)) # Set Year as numeric
+  
+  # Filter years for plotting if specified by argument
+  if (!is.null(years)) {
+    proj_long <- proj_long %>% filter(Year %in% years)
+  }
+  
+  if (legend == 'continuous'){
+    # Generate plot with continuous scale legend
+    ggplot(proj_long, aes(x = Age, 
+                          y = !!sym(rate_col), # Allows string to be interpreted as a column name
+                          color = Year, 
+                          group = Year)) +
+      geom_line() +
+      scale_color_viridis_c(option = 'viridis') + # Sets the color of the gradient scale
+      scale_y_log10() + # Log scale for better visualization
+      labs(title = paste0(plot_name, ' Rate Forecast for ', country), 
+           x = 'Age', 
+           y = paste0(plot_name, ' Rate ', y_axis_title),
+           color = 'Year') +
+      theme_minimal()
+  } else {
+    # Generate same plot but with discrete legend
+    ggplot(proj_long, aes(x = Age, 
+                          y = !!sym(rate_col), 
+                          color = factor(Year))) +
+    geom_line() +
+    scale_color_viridis_d(option = 'viridis') + # Slightly different function from continuous case
+    scale_y_log10() +  # Log scale for better visualization
+    labs(title = paste0(plot_name, ' Rate Forecast for ', country), 
+         x = 'Age', 
+         y = paste0(plot_name, ' Rate ', y_axis_title), 
+         color = 'Year') +
+    theme_minimal()
+  }
+}
+
+```
+
+```{r}
+# plot the forecasted fertility or mortality rates
+
+plot_demog_forecast(
+  forecast_data = fr_mort_forecast, # output from forecast function
+  plot_type = 'mortality') 
+```
+
+## Thought Exercises
+
+#### Q. 1 As you've learned, the Lee-Carter model can be used to forecast mortality or fertility rates. In the context of the code you ran, what do the parameters `series`, `years`, and `ages` represent in the `lca()` function?
+
+-   ...
+
+#### Q. 2 What do all of the colorful lines represent in the forecasted fertility or mortality rates plot?
+
+-   ...
+
+#### Q. 3 Looking at the forecasted fertility or mortality rates plot, what trends do you observe?
+
+-   ...

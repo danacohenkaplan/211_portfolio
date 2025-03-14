@@ -1,0 +1,81 @@
+---
+title: "Popbio Package"
+author: "Taylor Cook"
+date: "2025-02-19"
+output:
+  html_document:
+    df_print: paged
+---
+
+popbio package is a package that is used to analyze population data. It estimates population growth rates, and other population parameters. It can build and analyze projetion matrices from census data classified by age or stage class. It can also calculate population growth and extinction risk from the projection matrix.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(popbio)
+```
+
+## Load data
+
+```{r}
+
+hud_data<-hudsonia
+
+#create a dataframe from the matrix
+hudsonia_1985 <- hudsonia$A85
+hudsonia_1986 <- hudsonia$A86
+hudsonia_1987 <- hudsonia$A87
+hudsonia_1988 <- hudsonia$A88
+```
+
+
+## Deterministic Growth Rate
+
+```{r}
+#lambada is a quick way to find deterministic population growth rate. 
+#detminisisitc growth rate is the growth rate of a population that is not subject to random fluctuations in the environment or in its growth rate. It assumes density-independent growth, constant vital rates and envrionment.
+
+lambda85 <- lambda(hudsonia_1985)
+lambda86 <- lambda(hudsonia_1986)
+lambda87 <- lambda(hudsonia_1987)
+lambda88 <- lambda(hudsonia_1988)
+
+print(lambda85)
+print(lambda86)
+print(lambda87)
+print(lambda88)
+```
+
+
+
+## Stochastic growth rate
+
+Stochastic growth rates assumes variable vital rates and environemntal stochasticity. It is the growth rate of a population that is subject to random fluctuations in the environment or in its growth rate. 
+
+```{r}
+matrices <- list(hudsonia_1985, hudsonia_1986, hudsonia_1987, hudsonia_1988)
+names(matrices) <- c("1985", "1986", "1987", "1988")
+
+
+
+#find stochasstic growth rate
+sgr <-stoch.growth.rate(matrices,verbose=FALSE)
+exp(sgr$approx)
+```
+
+## Question:
+
+1. Compare the growth rates calculated using the two methods. How are they different? Why?
+
+The deterministic growth rates are 0.95 for 1985, 1.009 for 1986, 0.84 for 1987, and 1.01 for 1988. The stochastic growth rate is 0.963. The growth rates calculated using the two methods are different because the deterministic growth rate assumes density-independent growth, constant vital rates and environment. The stochastic growth rate assumes variable vital rates and environmental stochasticity.
+
+
+
+
+
+
+
+
+
+
